@@ -147,7 +147,7 @@ jobs:
         # gh-pages 브랜치가 존재하는지 확인
         if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
           echo "gh-pages branch exists, checking out..."
-          git clone --branch gh-pages --single-branch https://github.com/${{ github.repository }}.git gh-pages-dir
+          git clone --branch gh-pages --single-branch https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-dir
           cd gh-pages-dir
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
@@ -173,12 +173,22 @@ jobs:
         
         # Generate/update index.yaml
         cd gh-pages-dir
+        
+        # Set up Git authentication for push
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        
         helm repo index . --url https://${{ github.repository_owner }}.github.io/crashloop-operator
+        
+        # Show what we're committing
+        echo "=== Files to commit ==="
+        ls -la *.tgz
+        echo "=== index.yaml content ==="
+        cat index.yaml
         
         # Commit and push changes
         git add .
-        git commit -m "Release ${{ steps.version.outputs.version }}" || exit 0
-        git push
+        git commit -m "Release ${{ steps.version.outputs.version }}" || echo "No changes to commit"
+        git push origin gh-pages
 
   update-readme:
     runs-on: ubuntu-latest
