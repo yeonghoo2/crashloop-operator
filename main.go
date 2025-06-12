@@ -33,19 +33,19 @@ type ReplicaSetController struct {
 func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// ReplicaSet 조회
+	// Fetch the ReplicaSet
 	var rs appsv1.ReplicaSet
 	if err := r.Get(ctx, req.NamespacedName, &rs); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "ReplicaSet을 조회할 수 없습니다")
+			log.Error(err, "Failed to get ReplicaSet")
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 
-	// 조건 확인: replicas가 1이고 ready replicas가 0인지
+	// Check conditions: 1 replica and 0 ready replicas
 	if rs.Spec.Replicas != nil && *rs.Spec.Replicas == 1 && rs.Status.ReadyReplicas == 0 {
-		// 해당 ReplicaSet의 Pod들을 조회
+		// List pods for this ReplicaSet
 		podList := &corev1.PodList{}
 		listOpts := []client.ListOption{
 			client.InNamespace(rs.Namespace),
@@ -53,31 +53,31 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 		}
 
 		if err := r.List(ctx, podList, listOpts...); err != nil {
-			log.Error(err, "Pod 목록을 조회할 수 없습니다")
+			log.Error(err, "Failed to list pods")
 			return reconcile.Result{}, err
 		}
 
-		// Pod가 CrashLoopBackOff 상태인지 확인
+		// Check if any pod is in CrashLoopBackOff state
 		for _, pod := range podList.Items {
 			if isPodInCrashLoopBackOff(&pod) {
-				log.Info("CrashLoopBackOff 상태의 ReplicaSet을 삭제합니다",
+				log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
 					"replicaset", rs.Name,
 					"namespace", rs.Namespace,
 					"pod", pod.Name)
 
-				// ReplicaSet 삭제
+				// Delete the ReplicaSet
 				if err := r.Delete(ctx, &rs); err != nil {
-					log.Error(err, "ReplicaSet 삭제에 실패했습니다")
+					log.Error(err, "Failed to delete ReplicaSet")
 					return reconcile.Result{}, err
 				}
 
-				log.Info("ReplicaSet이 성공적으로 삭제되었습니다", "replicaset", rs.Name)
+				log.Info("ReplicaSet successfully deleted", "replicaset", rs.Name)
 				return reconcile.Result{}, nil
 			}
 		}
 	}
 
-	// 30초 후 다시 체크
+	// Requeue after 30 seconds
 	return reconcile.Result{RequeueAfter: time.Second * 30}, nil
 }
 
@@ -90,7 +90,7 @@ func isPodInCrashLoopBackOff(pod *corev1.Pod) bool {
 				return true
 			}
 		}
-		// RestartCount가 높고 Ready가 false인 경우도 체크
+		// Also check for high restart count with not ready status
 		if containerStatus.RestartCount > 3 && !containerStatus.Ready {
 			return true
 		}
@@ -109,52 +109,52 @@ func main() {
 	var kubeconfig string
 	var masterURL string
 
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "kubeconfig 파일 경로")
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
 	flag.StringVar(&masterURL, "master", "", "Kubernetes API server URL")
 	flag.Parse()
 
 	klog.InitFlags(nil)
 
-	// Kubernetes 설정 로드
+	// Load Kubernetes configuration
 	cfg, err := getConfig(kubeconfig, masterURL)
 	if err != nil {
-		klog.Fatalf("Kubernetes 설정을 로드할 수 없습니다: %v", err)
+		klog.Fatalf("Failed to load Kubernetes configuration: %v", err)
 	}
 
-	// Controller Manager 생성
+	// Create controller manager
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: runtime.NewScheme(),
 	})
 	if err != nil {
-		klog.Fatalf("Manager 생성에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to create manager: %v", err)
 	}
 
-	// Scheme에 타입 등록
+	// Register types to scheme
 	if err := appsv1.AddToScheme(mgr.GetScheme()); err != nil {
-		klog.Fatalf("Scheme 등록에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to add apps/v1 to scheme: %v", err)
 	}
 	if err := corev1.AddToScheme(mgr.GetScheme()); err != nil {
-		klog.Fatalf("Scheme 등록에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to add core/v1 to scheme: %v", err)
 	}
 
-	// Kubernetes clientset 생성
+	// Create Kubernetes clientset
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		klog.Fatalf("Clientset 생성에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to create clientset: %v", err)
 	}
 
-	// Controller 등록
+	// Register controller
 	if err = (&ReplicaSetController{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		clientset: clientset,
 	}).SetupWithManager(mgr); err != nil {
-		klog.Fatalf("Controller 설정에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to setup controller: %v", err)
 	}
 
-	klog.Info("ReplicaSet Operator를 시작합니다...")
+	klog.Info("Starting ReplicaSet Operator...")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		klog.Fatalf("Manager 시작에 실패했습니다: %v", err)
+		klog.Fatalf("Failed to start manager: %v", err)
 	}
 }
 
