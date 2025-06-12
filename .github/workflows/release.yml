@@ -142,12 +142,29 @@ jobs:
           
           See the [CHANGELOG.md](CHANGELOG.md) for detailed changes.
 
-    - name: Checkout gh-pages
-      uses: actions/checkout@v4
-      with:
-        ref: gh-pages
-        path: gh-pages-dir
-        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout gh-pages or create if not exists
+      run: |
+        # gh-pages 브랜치가 존재하는지 확인
+        if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+          echo "gh-pages branch exists, checking out..."
+          git clone --branch gh-pages --single-branch https://github.com/${{ github.repository }}.git gh-pages-dir
+          cd gh-pages-dir
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+        else
+          echo "gh-pages branch does not exist, creating..."
+          mkdir -p gh-pages-dir
+          cd gh-pages-dir
+          git init
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          echo "# Helm Repository" > README.md
+          git add README.md
+          git commit -m "Initial commit for gh-pages"
+          git branch -m gh-pages
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push -u origin gh-pages
+        fi
 
     - name: Update Helm repository
       run: |
