@@ -3,7 +3,7 @@
 
 # Image settings
 image:
-  repository: ghcr.io/yourusername/crashloop-operator
+  repository: ghcr.io/yeonghoo2/crashloop-operator
   pullPolicy: IfNotPresent
   tag: "latest"
 
