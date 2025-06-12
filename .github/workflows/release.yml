@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.1.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Run tests
+      run: |
+        go mod tidy
+        go test ./...
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  release-helm-chart:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.1'
+
+    - name: Get release version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Update Chart version
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        VERSION_NUMBER=${VERSION#v}
+        sed -i "s/^version:.*/version: ${VERSION_NUMBER}/" charts/crashloop-operator/Chart.yaml
+        sed -i "s/^appVersion:.*/appVersion: \"${VERSION_NUMBER}\"/" charts/crashloop-operator/Chart.yaml
+        
+        # Update default image tag in values.yaml
+        sed -i "s/tag: \".*\"/tag: \"${VERSION}\"/" charts/crashloop-operator/values.yaml
+
+    - name: Package Helm chart
+      run: |
+        helm package charts/crashloop-operator --destination .deploy
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: false
+        files: |
+          .deploy/*.tgz
+        body: |
+          ## CrashLoop Operator ${{ steps.version.outputs.version }}
+          
+          ### Installation
+          
+          ```bash
+          helm repo add crashloop-operator https://${{ github.repository_owner }}.github.io/crashloop-operator
+          helm repo update
+          helm install crashloop-operator crashloop-operator/crashloop-operator
+          ```
+          
+          ### Docker Image
+          
+          ```
+          ${{ needs.build-and-push.outputs.image-tag }}
+          ```
+          
+          ### Changes
+          
+          See the [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+
+    - name: Checkout gh-pages
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        path: gh-pages-dir
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update Helm repository
+      run: |
+        # Copy packaged chart to gh-pages directory
+        cp .deploy/*.tgz gh-pages-dir/
+        
+        # Generate/update index.yaml
+        cd gh-pages-dir
+        helm repo index . --url https://${{ github.repository_owner }}.github.io/crashloop-operator
+        
+        # Commit and push changes
+        git add .
+        git commit -m "Release ${{ steps.version.outputs.version }}" || exit 0
+        git push
+
+  update-readme:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, release-helm-chart]
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get release version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Update README badges
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        sed -i "s|\(https://img\.shields\.io/github/v/release/[^)]*\)|\1|g" README.md
+        sed -i "s|\(https://img\.shields\.io/docker/v/[^)]*\)|\1|g" README.md
+
+    - name: Commit README updates
+      run: |
+        git config user.name "$GITHUB_ACTOR"
+        git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+        git add README.md
+        git commit -m "docs: update badges for ${{ steps.version.outputs.version }}" || exit 0
+        git push

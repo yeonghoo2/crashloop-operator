@@ -1,0 +1,54 @@
+🚀 CrashLoop Operator has been successfully deployed!
+
+The operator will automatically monitor and delete ReplicaSets that meet the following criteria:
+- Has exactly 1 replica
+- Has 0 ready replicas
+- Contains pods in CrashLoopBackOff state or with high restart counts (>{{ .Values.operator.minRestartCount }})
+
+📊 Operator Status:
+  Health Checks: Available on port {{ .Values.operator.healthPort }}
+  Log Level: {{ .Values.operator.logLevel }}
+  Recheck Interval: {{ .Values.operator.recheckInterval }} seconds
+
+📈 To check the operator status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "crashloop-operator.name" . }}
+
+📋 To view operator logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "crashloop-operator.name" . }} -f
+
+🧪 To test the operator with a crash loop ReplicaSet:
+  kubectl apply -f - <<EOF
+  apiVersion: apps/v1
+  kind: ReplicaSet
+  metadata:
+    name: test-crashloop-rs
+    namespace: {{ .Release.Namespace }}
+    labels:
+      app: test-crashloop
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: test-crashloop
+    template:
+      metadata:
+        labels:
+          app: test-crashloop
+      spec:
+        containers:
+        - name: crashloop-container
+          image: busybox
+          command: ["sh", "-c", "echo 'Starting...'; sleep 5; exit 1"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+        restartPolicy: Always
+  EOF
+
+⚠️  Important Notes:
+- This operator has cluster-wide permissions to view and delete ReplicaSets
+- Test thoroughly in non-production environments before using in production
+- The operator will only delete ReplicaSets matching the specific criteria mentioned above
+
+For more information, visit: {{ .Chart.Home }}

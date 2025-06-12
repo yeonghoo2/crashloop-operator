@@ -1,0 +1,81 @@
+# Default values for crashloop-operator
+# This is a YAML-formatted file.
+
+# Image settings
+image:
+  repository: ghcr.io/yourusername/crashloop-operator
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Service account settings
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Replica count
+replicaCount: 1
+
+# Operator settings
+operator:
+  # Log level (0-4, higher is more verbose)
+  logLevel: 2
+  # Check interval for replicasets (in seconds)
+  recheckInterval: 30
+  # Minimum restart count to consider a pod as crashing
+  minRestartCount: 3
+  # Namespace to watch (empty means all namespaces)
+  watchNamespace: ""
+  # Health probe port
+  healthPort: 8081
+
+# RBAC settings
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: true
