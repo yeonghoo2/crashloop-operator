@@ -110,7 +110,12 @@ jobs:
 
     - name: Package Helm chart
       run: |
+        mkdir -p .deploy
         helm package charts/crashloop-operator --destination .deploy
+        echo "=== Packaged files ==="
+        ls -la .deploy/
+        echo "=== Chart content verification ==="
+        tar -tzf .deploy/crashloop-operator-*.tgz | head -10
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
@@ -168,8 +173,16 @@ jobs:
 
     - name: Update Helm repository
       run: |
+        # Verify source files exist
+        echo "=== Source files in .deploy ==="
+        ls -la .deploy/
+        
         # Copy packaged chart to gh-pages directory
         cp .deploy/*.tgz gh-pages-dir/
+        
+        # Verify files were copied
+        echo "=== Files copied to gh-pages-dir ==="
+        ls -la gh-pages-dir/*.tgz
         
         # Generate/update index.yaml
         cd gh-pages-dir
@@ -180,8 +193,10 @@ jobs:
         helm repo index . --url https://${{ github.repository_owner }}.github.io/crashloop-operator
         
         # Show what we're committing
-        echo "=== Files to commit ==="
-        ls -la *.tgz
+        echo "=== All files in gh-pages directory ==="
+        ls -la
+        echo "=== Chart files specifically ==="
+        ls -la *.tgz || echo "No .tgz files found!"
         echo "=== index.yaml content ==="
         cat index.yaml
         
