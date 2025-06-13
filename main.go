@@ -27,7 +27,6 @@ type OperatorConfig struct {
 	MinRestartCount int32
 	RecheckInterval time.Duration
 	WatchNamespace  string
-	HealthPort      string
 }
 
 // ReplicaSetController reconciles ReplicaSet objects
@@ -176,7 +175,7 @@ func main() {
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 runtime.NewScheme(),
 		LeaderElection:         false, // Disabled for single replica deployment
-		HealthProbeBindAddress: config.HealthPort,
+		HealthProbeBindAddress: ":8081",
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
@@ -219,7 +218,7 @@ func main() {
 		"minRestartCount", config.MinRestartCount,
 		"recheckInterval", config.RecheckInterval,
 		"watchNamespace", config.WatchNamespace,
-		"healthPort", config.HealthPort)
+		"healthPort", "8081")
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("Failed to start manager: %v", err)
@@ -232,7 +231,6 @@ func loadConfig() *OperatorConfig {
 		TargetLabels:    make(map[string]string),
 		MinRestartCount: 3,
 		RecheckInterval: 30 * time.Second,
-		HealthPort:      "0.0.0.0:8081", // Default health port
 	}
 
 	// Load target labels from environment variable
@@ -257,11 +255,6 @@ func loadConfig() *OperatorConfig {
 
 	if watchNamespaceEnv := os.Getenv("WATCH_NAMESPACE"); watchNamespaceEnv != "" {
 		config.WatchNamespace = watchNamespaceEnv
-	}
-
-	// Load health port configuration
-	if healthPortEnv := os.Getenv("HEALTH_PORT"); healthPortEnv != "" {
-		config.HealthPort = "0.0.0.0:" + healthPortEnv
 	}
 
 	return config
