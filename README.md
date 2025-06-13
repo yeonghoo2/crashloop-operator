@@ -130,6 +130,7 @@ metadata:
   name: test-crashloop-rs
   labels:
     app: test-crashloop
+    rollouts-pod-template-hash: abcdefghi
 spec:
   replicas: 1
   selector:
@@ -143,7 +144,7 @@ spec:
       containers:
       - name: crashloop-container
         image: busybox
-        command: ["sh", "-c", "echo 'Starting...'; sleep 5; exit 1"]
+        command: ["sh", "-c", "echo 'Starting...'; sleep 2; exit 1"]
         resources:
           requests:
             cpu: 100m
