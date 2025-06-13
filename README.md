@@ -10,7 +10,7 @@
 
 ## 🎯 Overview
 
-The CrashLoop Operator monitors your Kubernetes cluster for ReplicaSets that meet specific failure criteria and automatically removes them to prevent resource waste and improve cluster stability. It's designed to handle scenarios where pods continuously fail to start, consuming cluster resources without providing any value.
+The CrashLoop Operator was specifically created to handle CrashLoopBackOff ReplicaSets in Argo Rollouts. It monitors your Kubernetes cluster for ReplicaSets that meet specific failure criteria and automatically removes them to prevent resource waste and improve cluster stability. This addresses scenarios where pods continuously fail to start during rollout processes, consuming cluster resources without providing any value.
 
 ### Key Features
 
