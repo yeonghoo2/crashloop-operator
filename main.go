@@ -17,6 +17,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -26,6 +27,7 @@ type OperatorConfig struct {
 	MinRestartCount int32
 	RecheckInterval time.Duration
 	WatchNamespace  string
+	HealthPort      string
 }
 
 // ReplicaSetController reconciles ReplicaSet objects
@@ -170,10 +172,11 @@ func main() {
 		klog.Fatalf("Failed to load Kubernetes configuration: %v", err)
 	}
 
-	// Create controller manager with leader election disabled
+	// Create controller manager with health probe configuration
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:         runtime.NewScheme(),
-		LeaderElection: false, // Disabled for single replica deployment
+		Scheme:                 runtime.NewScheme(),
+		LeaderElection:         false, // Disabled for single replica deployment
+		HealthProbeBindAddress: config.HealthPort,
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
@@ -203,11 +206,20 @@ func main() {
 		klog.Fatalf("Failed to setup controller: %v", err)
 	}
 
+	// Add health and ready checks
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		klog.Fatalf("Failed to add health check: %v", err)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		klog.Fatalf("Failed to add ready check: %v", err)
+	}
+
 	klog.Info("Starting ReplicaSet Operator...",
 		"targetLabels", config.TargetLabels,
 		"minRestartCount", config.MinRestartCount,
 		"recheckInterval", config.RecheckInterval,
-		"watchNamespace", config.WatchNamespace)
+		"watchNamespace", config.WatchNamespace,
+		"healthPort", config.HealthPort)
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("Failed to start manager: %v", err)
@@ -220,6 +232,7 @@ func loadConfig() *OperatorConfig {
 		TargetLabels:    make(map[string]string),
 		MinRestartCount: 3,
 		RecheckInterval: 30 * time.Second,
+		HealthPort:      "0.0.0.0:8081", // Default health port
 	}
 
 	// Load target labels from environment variable
@@ -244,6 +257,11 @@ func loadConfig() *OperatorConfig {
 
 	if watchNamespaceEnv := os.Getenv("WATCH_NAMESPACE"); watchNamespaceEnv != "" {
 		config.WatchNamespace = watchNamespaceEnv
+	}
+
+	// Load health port configuration
+	if healthPortEnv := os.Getenv("HEALTH_PORT"); healthPortEnv != "" {
+		config.HealthPort = "0.0.0.0:" + healthPortEnv
 	}
 
 	return config
