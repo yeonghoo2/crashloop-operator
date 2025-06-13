@@ -214,28 +214,7 @@ func main() {
 		klog.Fatalf("Failed to add ready check: %v", err)
 	}
 
-	klog.Info("Starting ReplicaSet Operator...",
-		"targetLabels", config.TargetLabels,
-		"minRestartCount", config.MinRestartCount,
-		"recheckInterval", config.RecheckInterval,
-		"watchNamespace", config.WatchNamespace,
-		"healthPort", "8081")
-
-	klog.Info("Health and readiness checks configured on port 8081")
-
-	// Start a simple HTTP server for debugging (임시)
-	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/debug-healthz", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
-		})
-		klog.Info("Starting debug HTTP server on :8082")
-		if err := http.ListenAndServe(":8082", mux); err != nil {
-			klog.Errorf("Debug HTTP server failed: %v", err)
-		}
-	}()
-
+	// Start the manager
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("Failed to start manager: %v", err)
 	}
