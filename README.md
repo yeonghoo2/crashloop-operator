@@ -64,7 +64,7 @@ The CrashLoop Operator follows a simple but effective logic:
    - Has 0 ready replicas
    - Contains pods in CrashLoopBackOff state OR with high restart counts (>3 by default)
 3. **Act**: Safely removes qualifying ReplicaSets to free up cluster resources
-4. **Repeat**: Rechecks every 30 seconds (configurable)
+4. **Repeat**: Rechecks every 120 seconds (configurable)
 
 ### Deletion Criteria
 

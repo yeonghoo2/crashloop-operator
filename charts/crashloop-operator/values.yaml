@@ -69,7 +69,7 @@ operator:
   # Log level (0-4, higher is more verbose)
   logLevel: 2
   # Check interval for replicasets (in seconds)
-  recheckInterval: 30
+  recheckInterval: 120
   # Minimum restart count to consider a pod as crashing
   minRestartCount: 3
   # Namespace to watch (empty means all namespaces)
