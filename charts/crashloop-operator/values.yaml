@@ -3,7 +3,7 @@
 
 # Image settings
 image:
-  repository: ghcr.io/yeonghoo2/crashloop-operator
+  repository: ghcr.io/yourusername/crashloop-operator
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -64,6 +64,8 @@ replicaCount: 1
 
 # Operator settings
 operator:
+  targetLabels:
+    rollouts-pod-template-hash: ""
   # Log level (0-4, higher is more verbose)
   logLevel: 2
   # Check interval for replicasets (in seconds)
@@ -74,6 +76,7 @@ operator:
   watchNamespace: ""
   # Health probe port
   healthPort: 8081
+
 
 # RBAC settings
 rbac:

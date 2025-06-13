@@ -4,7 +4,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
+	"os"
+	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,11 +23,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// OperatorConfig holds the configuration for the operator
+type OperatorConfig struct {
+	TargetLabels    map[string]string
+	MinRestartCount int32
+	RecheckInterval time.Duration
+	WatchNamespace  string
+}
+
 // ReplicaSetController reconciles ReplicaSet objects
 type ReplicaSetController struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	clientset *kubernetes.Clientset
+	Config    *OperatorConfig
 }
 
 // Reconcile handles the reconciliation logic for ReplicaSets.
@@ -43,6 +55,15 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{}, nil
 	}
 
+	// Check if ReplicaSet matches target labels
+	if !r.matchesTargetLabels(&rs) {
+		log.V(4).Info("ReplicaSet does not match target labels, skipping",
+			"replicaset", rs.Name,
+			"namespace", rs.Namespace,
+			"labels", rs.Labels)
+		return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
+	}
+
 	// Check conditions: 1 replica and 0 ready replicas
 	if rs.Spec.Replicas != nil && *rs.Spec.Replicas == 1 && rs.Status.ReadyReplicas == 0 {
 		// List pods for this ReplicaSet
@@ -59,11 +80,12 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 
 		// Check if any pod is in CrashLoopBackOff state
 		for _, pod := range podList.Items {
-			if isPodInCrashLoopBackOff(&pod) {
+			if r.isPodInCrashLoopBackOff(&pod) {
 				log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
 					"replicaset", rs.Name,
 					"namespace", rs.Namespace,
-					"pod", pod.Name)
+					"pod", pod.Name,
+					"matchedLabels", r.getMatchedLabels(&rs))
 
 				// Delete the ReplicaSet
 				if err := r.Delete(ctx, &rs); err != nil {
@@ -77,13 +99,46 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 		}
 	}
 
-	// Requeue after 30 seconds
-	return reconcile.Result{RequeueAfter: time.Second * 30}, nil
+	// Requeue after configured interval
+	return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
+}
+
+// matchesTargetLabels checks if the ReplicaSet has the required target labels
+func (r *ReplicaSetController) matchesTargetLabels(rs *appsv1.ReplicaSet) bool {
+	// If no target labels configured, match all ReplicaSets
+	if len(r.Config.TargetLabels) == 0 {
+		return true
+	}
+
+	// Check if ReplicaSet has all required labels
+	for key, value := range r.Config.TargetLabels {
+		rsValue, exists := rs.Labels[key]
+		if !exists {
+			return false
+		}
+		// If target value is empty string, just check label existence
+		// Otherwise, check for exact match
+		if value != "" && rsValue != value {
+			return false
+		}
+	}
+	return true
+}
+
+// getMatchedLabels returns the labels that matched the target criteria
+func (r *ReplicaSetController) getMatchedLabels(rs *appsv1.ReplicaSet) map[string]string {
+	matched := make(map[string]string)
+	for key := range r.Config.TargetLabels {
+		if value, exists := rs.Labels[key]; exists {
+			matched[key] = value
+		}
+	}
+	return matched
 }
 
 // isPodInCrashLoopBackOff checks if a pod is in CrashLoopBackOff state
 // by examining container status and restart count.
-func isPodInCrashLoopBackOff(pod *corev1.Pod) bool {
+func (r *ReplicaSetController) isPodInCrashLoopBackOff(pod *corev1.Pod) bool {
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.State.Waiting != nil {
 			if containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
@@ -91,7 +146,7 @@ func isPodInCrashLoopBackOff(pod *corev1.Pod) bool {
 			}
 		}
 		// Also check for high restart count with not ready status
-		if containerStatus.RestartCount > 3 && !containerStatus.Ready {
+		if containerStatus.RestartCount > r.Config.MinRestartCount && !containerStatus.Ready {
 			return true
 		}
 	}
@@ -114,6 +169,9 @@ func main() {
 	flag.Parse()
 
 	klog.InitFlags(nil)
+
+	// Load configuration from environment variables
+	config := loadConfig()
 
 	// Load Kubernetes configuration
 	cfg, err := getConfig(kubeconfig, masterURL)
@@ -148,14 +206,55 @@ func main() {
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		clientset: clientset,
+		Config:    config,
 	}).SetupWithManager(mgr); err != nil {
 		klog.Fatalf("Failed to setup controller: %v", err)
 	}
 
-	klog.Info("Starting ReplicaSet Operator...")
+	klog.Info("Starting ReplicaSet Operator...",
+		"targetLabels", config.TargetLabels,
+		"minRestartCount", config.MinRestartCount,
+		"recheckInterval", config.RecheckInterval,
+		"watchNamespace", config.WatchNamespace)
+
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("Failed to start manager: %v", err)
 	}
+}
+
+// loadConfig loads configuration from environment variables
+func loadConfig() *OperatorConfig {
+	config := &OperatorConfig{
+		TargetLabels:    make(map[string]string),
+		MinRestartCount: 3,
+		RecheckInterval: 30 * time.Second,
+	}
+
+	// Load target labels from environment variable
+	if targetLabelsEnv := os.Getenv("TARGET_LABELS"); targetLabelsEnv != "" {
+		if err := json.Unmarshal([]byte(targetLabelsEnv), &config.TargetLabels); err != nil {
+			klog.Warningf("Failed to parse TARGET_LABELS: %v, using empty map", err)
+		}
+	}
+
+	// Load other configuration
+	if minRestartCountEnv := os.Getenv("MIN_RESTART_COUNT"); minRestartCountEnv != "" {
+		if count, err := strconv.ParseInt(minRestartCountEnv, 10, 32); err == nil {
+			config.MinRestartCount = int32(count)
+		}
+	}
+
+	if recheckIntervalEnv := os.Getenv("RECHECK_INTERVAL"); recheckIntervalEnv != "" {
+		if interval, err := strconv.ParseInt(recheckIntervalEnv, 10, 64); err == nil {
+			config.RecheckInterval = time.Duration(interval) * time.Second
+		}
+	}
+
+	if watchNamespaceEnv := os.Getenv("WATCH_NAMESPACE"); watchNamespaceEnv != "" {
+		config.WatchNamespace = watchNamespaceEnv
+	}
+
+	return config
 }
 
 // getConfig creates a Kubernetes client configuration from kubeconfig file or in-cluster config.

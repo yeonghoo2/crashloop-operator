@@ -73,6 +73,18 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: TARGET_LABELS
+          value: {{ toJson .Values.operator.targetLabels | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.operator.logLevel | quote }}
+        - name: RECHECK_INTERVAL
+          value: {{ .Values.operator.recheckInterval | quote }}
+        - name: MIN_RESTART_COUNT
+          value: {{ .Values.operator.minRestartCount | quote }}
+        {{- if .Values.operator.watchNamespace }}
+        - name: WATCH_NAMESPACE
+          value: {{ .Values.operator.watchNamespace | quote }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
