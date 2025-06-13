@@ -175,7 +175,7 @@ func main() {
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 runtime.NewScheme(),
 		LeaderElection:         false, // Disabled for single replica deployment
-		HealthProbeBindAddress: ":8081",
+		HealthProbeBindAddress: "0.0.0.0:8081", // 모든 인터페이스에서 리스닝하도록 변경
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
@@ -212,6 +212,13 @@ func main() {
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		klog.Fatalf("Failed to add ready check: %v", err)
 	}
+
+	klog.Info("Starting ReplicaSet Operator...",
+		"targetLabels", config.TargetLabels,
+		"minRestartCount", config.MinRestartCount,
+		"recheckInterval", config.RecheckInterval,
+		"watchNamespace", config.WatchNamespace,
+		"healthPort", "8081")
 
 	// Start the manager
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
