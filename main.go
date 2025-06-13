@@ -170,9 +170,10 @@ func main() {
 		klog.Fatalf("Failed to load Kubernetes configuration: %v", err)
 	}
 
-	// Create controller manager
+	// Create controller manager with leader election disabled
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: runtime.NewScheme(),
+		Scheme:         runtime.NewScheme(),
+		LeaderElection: false, // Disabled for single replica deployment
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)

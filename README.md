@@ -10,7 +10,7 @@
 
 ## 🎯 Overview
 
-The CrashLoop Operator was specifically created to handle CrashLoopBackOff ReplicaSets in Argo Rollouts. It monitors your Kubernetes cluster for ReplicaSets that meet specific failure criteria and automatically removes them to prevent resource waste and improve cluster stability. This addresses scenarios where pods continuously fail to start during rollout processes, consuming cluster resources without providing any value.
+The CrashLoop Operator monitors your Kubernetes cluster for ReplicaSets that meet specific failure criteria and automatically removes them to prevent resource waste and improve cluster stability. It's designed to handle scenarios where pods continuously fail to start, consuming cluster resources without providing any value.
 
 ### Key Features
 
@@ -241,6 +241,14 @@ helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
 - **Permissions**: The operator requires cluster-wide permissions to view and delete ReplicaSets
 - **Scope**: Only targets ReplicaSets with exactly 1 replica to minimize impact
 - **Safety**: Always verify deletion criteria match your requirements
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes and add tests
+4. Run tests: `make test`
+5. Submit a pull request
 
 ## 📄 License
 
