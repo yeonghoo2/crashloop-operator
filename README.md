@@ -184,21 +184,6 @@ make docker-build
 make test
 ```
 
-### Project Structure
-
-```
-crashloop-operator/
-├── main.go                     # Operator source code
-├── go.mod                      # Go module dependencies
-├── Dockerfile                  # Container image definition
-├── Makefile                    # Build and development commands
-├── charts/crashloop-operator/  # Helm chart
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   └── templates/
-└── .github/workflows/          # CI/CD pipelines
-```
-
 ## 🔧 Troubleshooting
 
 ### Common Issues
