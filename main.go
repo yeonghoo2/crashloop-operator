@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -176,6 +177,7 @@ func main() {
 		Scheme:                 runtime.NewScheme(),
 		LeaderElection:         false, // Disabled for single replica deployment
 		HealthProbeBindAddress: ":8081",
+		MetricsBindAddress:     ":8080", // Explicitly set metrics port
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
@@ -220,6 +222,21 @@ func main() {
 		"watchNamespace", config.WatchNamespace,
 		"healthPort", "8081")
 
+	klog.Info("Health and readiness checks configured on port 8081")
+
+	// Start a simple HTTP server for debugging (임시)
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/debug-healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
+		klog.Info("Starting debug HTTP server on :8082")
+		if err := http.ListenAndServe(":8082", mux); err != nil {
+			klog.Errorf("Debug HTTP server failed: %v", err)
+		}
+	}()
+
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		klog.Fatalf("Failed to start manager: %v", err)
 	}
@@ -240,7 +257,7 @@ func loadConfig() *OperatorConfig {
 		}
 	}
 
-	// Load other configuration
+	// Load other configuration values
 	if minRestartCountEnv := os.Getenv("MIN_RESTART_COUNT"); minRestartCountEnv != "" {
 		if count, err := strconv.ParseInt(minRestartCountEnv, 10, 32); err == nil {
 			config.MinRestartCount = int32(count)
