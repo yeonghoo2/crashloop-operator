@@ -242,34 +242,6 @@ helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
 - **Scope**: Only targets ReplicaSets with exactly 1 replica to minimize impact
 - **Safety**: Always verify deletion criteria match your requirements
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes and add tests
-4. Run tests: `make test`
-5. Submit a pull request
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🏆 Acknowledgments
-
-- Built with [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime)
-- Inspired by the need for better Kubernetes resource management
-- Thanks to the Kubernetes community for excellent tooling and documentation
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yeonghoo2/crashloop-operator/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yeonghoo2/crashloop-operator/discussions)
-- **Documentation**: [Project Wiki](https://github.com/yeonghoo2/crashloop-operator/wiki)
-
----
-
-**Made with ❤️ for the Kubernetes community**
