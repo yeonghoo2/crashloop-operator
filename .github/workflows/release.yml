@@ -106,7 +106,8 @@ jobs:
         sed -i "s/^appVersion:.*/appVersion: \"${VERSION_NUMBER}\"/" charts/crashloop-operator/Chart.yaml
         
         # Update default image tag in values.yaml
-        sed -i "s/tag: \".*\"/tag: \"${VERSION}\"/" charts/crashloop-operator/values.yaml
+        # Update default image tag in values.yaml
+        sed -i "s/tag: \".*\"/tag: \"${VERSION_NUMBER}\"/" charts/crashloop-operator/values.yaml
 
     - name: Package Helm chart
       run: |
