@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
