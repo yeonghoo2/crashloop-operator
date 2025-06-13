@@ -177,7 +177,6 @@ func main() {
 		Scheme:                 runtime.NewScheme(),
 		LeaderElection:         false, // Disabled for single replica deployment
 		HealthProbeBindAddress: ":8081",
-		MetricsBindAddress:     ":8080", // Explicitly set metrics port
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
