@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"os"
 	"strconv"
 	"time"
@@ -14,8 +13,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -161,20 +158,14 @@ func (r *ReplicaSetController) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func main() {
-	var kubeconfig string
-	var masterURL string
-
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
-	flag.StringVar(&masterURL, "master", "", "Kubernetes API server URL")
-	flag.Parse()
-
-	klog.InitFlags(nil)
+	// Initialize klog and controller-runtime flags
+	ctrl.SetLogger(klog.Background())
 
 	// Load configuration from environment variables
 	config := loadConfig()
 
-	// Load Kubernetes configuration
-	cfg, err := getConfig(kubeconfig, masterURL)
+	// Load Kubernetes configuration (use in-cluster config by default)
+	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		klog.Fatalf("Failed to load Kubernetes configuration: %v", err)
 	}
@@ -255,12 +246,4 @@ func loadConfig() *OperatorConfig {
 	}
 
 	return config
-}
-
-// getConfig creates a Kubernetes client configuration from kubeconfig file or in-cluster config.
-func getConfig(kubeconfig, masterURL string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		return clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
-	}
-	return rest.InClusterConfig()
 }
