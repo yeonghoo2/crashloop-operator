@@ -70,8 +70,9 @@ The CrashLoop Operator follows a simple but effective logic:
 
 A ReplicaSet will be deleted if **ALL** of the following conditions are met:
 
-- `spec.replicas == 1`
 - `status.readyReplicas == 0`
+- ReplicaSet matches the configured target labels
+- At least one pod exists for the ReplicaSet
 - And replicas has `"rollouts-pod-template-hash" label`
 - At least one pod has:
   - `state.waiting.reason == "CrashLoopBackOff"` OR
