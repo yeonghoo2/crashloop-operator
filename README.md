@@ -227,7 +227,6 @@ helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
 
 - **Production Usage**: Thoroughly test in non-production environments before deploying to production clusters
 - **Permissions**: The operator requires cluster-wide permissions to view and delete ReplicaSets
-- **Scope**: Only targets ReplicaSets with exactly 1 replica to minimize impact
 - **Safety**: Always verify deletion criteria match your requirements
 
 ## 📄 License
