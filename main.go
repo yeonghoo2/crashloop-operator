@@ -39,7 +39,7 @@ type ReplicaSetController struct {
 
 // Reconcile handles the reconciliation logic for ReplicaSets.
 // It monitors ReplicaSets and deletes those that are in CrashLoopBackOff state
-// with 1 replica and 0 ready replicas.
+// when all pods are not ready.
 func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -62,8 +62,8 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
 	}
 
-	// Check conditions: 1 replica and 0 ready replicas
-	if rs.Spec.Replicas != nil && *rs.Spec.Replicas == 1 && rs.Status.ReadyReplicas == 0 {
+	// Check condition: 0 ready replicas (regardless of total replica count)
+	if rs.Status.ReadyReplicas == 0 {
 		// List pods for this ReplicaSet
 		podList := &corev1.PodList{}
 		listOpts := []client.ListOption{
@@ -76,23 +76,29 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 			return reconcile.Result{}, err
 		}
 
-		// Check if any pod is in CrashLoopBackOff state
-		for _, pod := range podList.Items {
-			if r.isPodInCrashLoopBackOff(&pod) {
-				log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
-					"replicaset", rs.Name,
-					"namespace", rs.Namespace,
-					"pod", pod.Name,
-					"matchedLabels", r.getMatchedLabels(&rs))
+		// Check if there are any pods and if any pod is in CrashLoopBackOff state
+		if len(podList.Items) > 0 {
+			for _, pod := range podList.Items {
+				if r.isPodInCrashLoopBackOff(&pod) {
+					log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
+						"replicaset", rs.Name,
+						"namespace", rs.Namespace,
+						"pod", pod.Name,
+						"totalPods", len(podList.Items),
+						"readyReplicas", rs.Status.ReadyReplicas,
+						"matchedLabels", r.getMatchedLabels(&rs))
 
-				// Delete the ReplicaSet
-				if err := r.Delete(ctx, &rs); err != nil {
-					log.Error(err, "Failed to delete ReplicaSet")
-					return reconcile.Result{}, err
+					// Delete the ReplicaSet
+					if err := r.Delete(ctx, &rs); err != nil {
+						log.Error(err, "Failed to delete ReplicaSet")
+						return reconcile.Result{}, err
+					}
+
+					log.Info("ReplicaSet successfully deleted",
+						"replicaset", rs.Name,
+						"totalPodsDeleted", len(podList.Items))
+					return reconcile.Result{}, nil
 				}
-
-				log.Info("ReplicaSet successfully deleted", "replicaset", rs.Name)
-				return reconcile.Result{}, nil
 			}
 		}
 	}
@@ -174,8 +180,8 @@ func main() {
 	// Create controller manager with health probe configuration
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 runtime.NewScheme(),
-		LeaderElection:         false, // Disabled for single replica deployment
-		HealthProbeBindAddress: "0.0.0.0:8081", // 모든 인터페이스에서 리스닝하도록 변경
+		LeaderElection:         false,          // Disabled for single replica deployment
+		HealthProbeBindAddress: "0.0.0.0:8081", // Listen on all interfaces
 	})
 	if err != nil {
 		klog.Fatalf("Failed to create manager: %v", err)
