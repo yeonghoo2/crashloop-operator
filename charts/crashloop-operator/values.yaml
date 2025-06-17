@@ -59,7 +59,7 @@ tolerations: []
 # Affinity
 affinity: {}
 
-# Replica count
+# Only 1 replica is needed
 replicaCount: 1
 
 # Operator settings
