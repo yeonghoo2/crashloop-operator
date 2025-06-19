@@ -85,9 +85,9 @@ At least one pod has:
 ### Configuration Options
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `TARGET_LABELS` | `{}` | JSON map of labels to target specific ReplicaSets |
+| `TARGET_LABELS` | `{rollouts-pod-template-hash: ""}` | JSON map of labels to target specific ReplicaSets |
 | `MIN_RESTART_COUNT` | `3` | Minimum restart count to consider for deletion |
-| `RECHECK_INTERVAL` | `30` | Seconds between reconciliation cycles |
+| `RECHECK_INTERVAL` | `120` | Seconds between reconciliation cycles |
 | `PROGRESS_DEADLINE_SECONDS` | `600` | Maximum time (seconds) before considering ReplicaSet stale |
 | `WATCH_NAMESPACE` | `""` | Specific namespace to watch (empty = all namespaces) |
 
@@ -102,7 +102,7 @@ Customize the operator behavior using Helm values:
 operator:
   logLevel: 2                    # Log verbosity (0-4)
   recheckInterval: 30            # Check interval in seconds
-  minRestartCount: 3             # Minimum restart count threshold
+  minRestartCount: 2             # Minimum restart count threshold
   watchNamespace: ""             # Watch specific namespace (empty = all)
   healthPort: 8081              # Health check port
   progressDeadlineSeconds: 600  # Progress deadline seconds
