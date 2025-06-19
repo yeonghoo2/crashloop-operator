@@ -80,7 +80,7 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 
 		// Check if there are any pods
 		if len(podList.Items) > 0 {
-			// Check for CrashLoopBackOff condition
+			// Check for CrashLoopBackOff condition first (immediate deletion)
 			for _, pod := range podList.Items {
 				if r.isPodInCrashLoopBackOff(&pod) {
 					log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
@@ -126,11 +126,60 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 					"totalPodsDeleted", len(podList.Items))
 				return reconcile.Result{}, nil
 			}
+
+			// If ReplicaSet has unready pods but hasn't reached deadline yet,
+			// check if it's close to deadline and schedule more frequent checks
+			if r.shouldScheduleFrequentChecks(&rs, podList.Items) {
+				// Calculate time remaining until deadline
+				deadline := time.Duration(r.Config.ProgressDeadlineSeconds) * time.Second
+				timeElapsed := time.Since(rs.CreationTimestamp.Time)
+				timeRemaining := deadline - timeElapsed
+
+				// Schedule next check to happen when deadline is reached
+				nextCheck := timeRemaining
+				if nextCheck > r.Config.RecheckInterval {
+					nextCheck = r.Config.RecheckInterval
+				}
+
+				log.V(2).Info("Scheduling frequent check for potential deadline deletion",
+					"replicaset", rs.Name,
+					"namespace", rs.Namespace,
+					"timeElapsed", timeElapsed,
+					"timeRemaining", timeRemaining,
+					"nextCheck", nextCheck)
+
+				return reconcile.Result{RequeueAfter: nextCheck}, nil
+			}
 		}
 	}
 
 	// Requeue after configured interval
 	return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
+}
+
+// shouldScheduleFrequentChecks determines if we should schedule more frequent checks
+// for ReplicaSets that might need deletion due to progress deadline
+func (r *ReplicaSetController) shouldScheduleFrequentChecks(rs *appsv1.ReplicaSet, pods []corev1.Pod) bool {
+	// Only schedule frequent checks if there are pods with unready containers
+	if len(pods) == 0 {
+		return false
+	}
+
+	// Check if any pods have unready containers (potential deletion candidates)
+	hasUnreadyContainers := false
+	for _, pod := range pods {
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if !containerStatus.Ready {
+				hasUnreadyContainers = true
+				break
+			}
+		}
+		if hasUnreadyContainers {
+			break
+		}
+	}
+
+	return hasUnreadyContainers
 }
 
 // shouldDeleteDueToProgressDeadline checks if ReplicaSet should be deleted
