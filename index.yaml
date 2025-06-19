@@ -5,10 +5,10 @@ entries:
       category: Infrastructure
     apiVersion: v2
     appVersion: 0.0.3
-    created: "2025-06-19T08:09:10.648780683Z"
+    created: "2025-06-19T08:26:06.800435225Z"
     description: A Kubernetes operator that automatically deletes ReplicaSets with
       pods in CrashLoopBackOff state
-    digest: 87ce62e1617e5c241e92760d2ce892c99ab26b583ba4943619cce5332e5ab473
+    digest: 5ec82f14cca32292c72aed9a29ce0d15f82354b075a8d1cb9d52e986456daf97
     home: https://github.com/yeonghoo2/crashloop-operator
     keywords:
     - operator
@@ -30,7 +30,7 @@ entries:
       category: Infrastructure
     apiVersion: v2
     appVersion: 0.0.2
-    created: "2025-06-19T08:09:10.648042393Z"
+    created: "2025-06-19T08:26:06.800047555Z"
     description: A Kubernetes operator that automatically deletes ReplicaSets with
       pods in CrashLoopBackOff state
     digest: 9dea2acd2ab9999ac78c21ba0277a9bd3b627d20e47cba9464f5856774dd477e
@@ -55,7 +55,7 @@ entries:
       category: Infrastructure
     apiVersion: v2
     appVersion: 0.0.1
-    created: "2025-06-19T08:09:10.647091065Z"
+    created: "2025-06-19T08:26:06.799634387Z"
     description: A Kubernetes operator that automatically deletes ReplicaSets with
       pods in CrashLoopBackOff state
     digest: 7b0b15aef8d737768265718caaf779cec1a6d5386275703f33f9c0af0f2c3619
@@ -76,4 +76,4 @@ entries:
     urls:
     - https://yeonghoo2.github.io/crashloop-operator/crashloop-operator-0.0.1.tgz
     version: 0.0.1
-generated: "2025-06-19T08:09:10.64530498Z"
+generated: "2025-06-19T08:26:06.799085334Z"
