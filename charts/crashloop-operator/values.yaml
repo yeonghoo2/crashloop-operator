@@ -76,6 +76,8 @@ operator:
   watchNamespace: ""
   # Health probe port
   healthPort: 8081
+  # Progress deadline seconds
+  progressDeadlineSeconds: 600
 
 
 # RBAC settings

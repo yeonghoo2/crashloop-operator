@@ -1,5 +1,6 @@
 // Package main implements a Kubernetes operator that monitors ReplicaSets
-// and automatically deletes those in CrashLoopBackOff state.
+// and automatically deletes those in CrashLoopBackOff state or those that exceed
+// progressDeadlineSeconds with all pods having unready containers.
 package main
 
 import (
@@ -23,10 +24,11 @@ import (
 
 // OperatorConfig holds the configuration for the operator
 type OperatorConfig struct {
-	TargetLabels    map[string]string
-	MinRestartCount int32
-	RecheckInterval time.Duration
-	WatchNamespace  string
+	TargetLabels            map[string]string
+	MinRestartCount         int32
+	RecheckInterval         time.Duration
+	WatchNamespace          string
+	ProgressDeadlineSeconds int32
 }
 
 // ReplicaSetController reconciles ReplicaSet objects
@@ -39,7 +41,7 @@ type ReplicaSetController struct {
 
 // Reconcile handles the reconciliation logic for ReplicaSets.
 // It monitors ReplicaSets and deletes those that are in CrashLoopBackOff state
-// when all pods are not ready.
+// or those that exceed progressDeadlineSeconds with all pods having unready containers.
 func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -76,8 +78,9 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 			return reconcile.Result{}, err
 		}
 
-		// Check if there are any pods and if any pod is in CrashLoopBackOff state
+		// Check if there are any pods
 		if len(podList.Items) > 0 {
+			// Check for CrashLoopBackOff condition
 			for _, pod := range podList.Items {
 				if r.isPodInCrashLoopBackOff(&pod) {
 					log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
@@ -94,17 +97,97 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 						return reconcile.Result{}, err
 					}
 
-					log.Info("ReplicaSet successfully deleted",
+					log.Info("ReplicaSet successfully deleted due to CrashLoopBackOff",
 						"replicaset", rs.Name,
 						"totalPodsDeleted", len(podList.Items))
 					return reconcile.Result{}, nil
 				}
+			}
+
+			// Check for progressDeadlineSeconds condition
+			if r.shouldDeleteDueToProgressDeadline(&rs, podList.Items) {
+				log.Info("Deleting ReplicaSet due to progress deadline exceeded",
+					"replicaset", rs.Name,
+					"namespace", rs.Namespace,
+					"totalPods", len(podList.Items),
+					"readyReplicas", rs.Status.ReadyReplicas,
+					"progressDeadlineSeconds", r.Config.ProgressDeadlineSeconds,
+					"replicaSetAge", time.Since(rs.CreationTimestamp.Time),
+					"matchedLabels", r.getMatchedLabels(&rs))
+
+				// Delete the ReplicaSet
+				if err := r.Delete(ctx, &rs); err != nil {
+					log.Error(err, "Failed to delete ReplicaSet")
+					return reconcile.Result{}, err
+				}
+
+				log.Info("ReplicaSet successfully deleted due to progress deadline",
+					"replicaset", rs.Name,
+					"totalPodsDeleted", len(podList.Items))
+				return reconcile.Result{}, nil
 			}
 		}
 	}
 
 	// Requeue after configured interval
 	return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
+}
+
+// shouldDeleteDueToProgressDeadline checks if ReplicaSet should be deleted
+// based on progressDeadlineSeconds and container readiness
+func (r *ReplicaSetController) shouldDeleteDueToProgressDeadline(rs *appsv1.ReplicaSet, pods []corev1.Pod) bool {
+	// Check if ReplicaSet is older than progressDeadlineSeconds
+	deadline := time.Duration(r.Config.ProgressDeadlineSeconds) * time.Second
+	if time.Since(rs.CreationTimestamp.Time) < deadline {
+		return false
+	}
+
+	// Check if all pods have the same container that is unready
+	if len(pods) == 0 {
+		return false
+	}
+
+	// Collect all container names from the first pod to use as reference
+	var referenceContainerNames []string
+	if len(pods[0].Status.ContainerStatuses) > 0 {
+		for _, containerStatus := range pods[0].Status.ContainerStatuses {
+			referenceContainerNames = append(referenceContainerNames, containerStatus.Name)
+		}
+	}
+
+	// For each container, check if it's unready across all pods
+	for _, containerName := range referenceContainerNames {
+		allPodsHaveUnreadyContainer := true
+
+		for _, pod := range pods {
+			containerFound := false
+			containerReady := false
+
+			for _, containerStatus := range pod.Status.ContainerStatuses {
+				if containerStatus.Name == containerName {
+					containerFound = true
+					if containerStatus.Ready {
+						containerReady = true
+					}
+					break
+				}
+			}
+
+			// If container not found in this pod or if it's ready,
+			// then not all pods have this container unready
+			if !containerFound || containerReady {
+				allPodsHaveUnreadyContainer = false
+				break
+			}
+		}
+
+		// If we found at least one container that is unready across all pods
+		if allPodsHaveUnreadyContainer {
+			return true
+		}
+	}
+
+	return false
 }
 
 // matchesTargetLabels checks if the ReplicaSet has the required target labels
@@ -224,6 +307,7 @@ func main() {
 		"minRestartCount", config.MinRestartCount,
 		"recheckInterval", config.RecheckInterval,
 		"watchNamespace", config.WatchNamespace,
+		"progressDeadlineSeconds", config.ProgressDeadlineSeconds,
 		"healthPort", "8081")
 
 	// Start the manager
@@ -235,9 +319,10 @@ func main() {
 // loadConfig loads configuration from environment variables
 func loadConfig() *OperatorConfig {
 	config := &OperatorConfig{
-		TargetLabels:    make(map[string]string),
-		MinRestartCount: 3,
-		RecheckInterval: 30 * time.Second,
+		TargetLabels:            make(map[string]string),
+		MinRestartCount:         3,
+		RecheckInterval:         30 * time.Second,
+		ProgressDeadlineSeconds: 600, // Default 10 minutes
 	}
 
 	// Load target labels from environment variable
@@ -262,6 +347,13 @@ func loadConfig() *OperatorConfig {
 
 	if watchNamespaceEnv := os.Getenv("WATCH_NAMESPACE"); watchNamespaceEnv != "" {
 		config.WatchNamespace = watchNamespaceEnv
+	}
+
+	// Load progressDeadlineSeconds from environment variable
+	if progressDeadlineEnv := os.Getenv("PROGRESS_DEADLINE_SECONDS"); progressDeadlineEnv != "" {
+		if deadline, err := strconv.ParseInt(progressDeadlineEnv, 10, 32); err == nil {
+			config.ProgressDeadlineSeconds = int32(deadline)
+		}
 	}
 
 	return config

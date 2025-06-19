@@ -55,28 +55,42 @@ kubectl logs -l app.kubernetes.io/name=crashloop-operator -f
 ```
 
 ## 📖 How It Works
-
 The CrashLoop Operator follows a simple but effective logic:
 
 1. **Monitor**: Continuously watches ReplicaSet resources across the cluster
 2. **Analyze**: Identifies ReplicaSets that match deletion criteria:
-   - Has exactly 1 replica specified
-   - Has 0 ready replicas
-   - Contains pods in CrashLoopBackOff state OR with high restart counts (>3 by default)
+  - Has 0 ready replicas
+  - Matches configured target labels (if specified)
+  - Contains pods in CrashLoopBackOff state OR with high restart counts OR exceeds progress deadline
 3. **Act**: Safely removes qualifying ReplicaSets to free up cluster resources
-4. **Repeat**: Rechecks every 120 seconds (configurable)
+4. **Repeat**: Rechecks every 30 seconds (configurable via `RECHECK_INTERVAL`)
 
 ### Deletion Criteria
-
 A ReplicaSet will be deleted if **ALL** of the following conditions are met:
-
 - `status.readyReplicas == 0`
-- ReplicaSet matches the configured target labels
+- ReplicaSet matches the configured target labels (if `TARGET_LABELS` is set)
 - At least one pod exists for the ReplicaSet
-- And replicas has `"rollouts-pod-template-hash" label`
-- At least one pod has:
-  - `state.waiting.reason == "CrashLoopBackOff"` OR
-  - `restartCount > minRestartCount` (default: 3) AND `ready == false`
+
+**AND** at least one of the following conditions:
+
+#### Condition 1: CrashLoopBackOff or High Restart Count
+At least one pod has:
+- `state.waiting.reason == "CrashLoopBackOff"` OR
+- `restartCount > minRestartCount` (default: 3) AND `ready == false`
+
+#### Condition 2: Progress Deadline Exceeded
+- ReplicaSet age exceeds `progressDeadlineSeconds` (default: 600 seconds / 10 minutes)
+- **AND** all pods have at least one identical container that is not ready across all pods
+
+### Configuration Options
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `TARGET_LABELS` | `{}` | JSON map of labels to target specific ReplicaSets |
+| `MIN_RESTART_COUNT` | `3` | Minimum restart count to consider for deletion |
+| `RECHECK_INTERVAL` | `30` | Seconds between reconciliation cycles |
+| `PROGRESS_DEADLINE_SECONDS` | `600` | Maximum time (seconds) before considering ReplicaSet stale |
+| `WATCH_NAMESPACE` | `""` | Specific namespace to watch (empty = all namespaces) |
+
 
 ## ⚙️ Configuration
 
@@ -91,6 +105,7 @@ operator:
   minRestartCount: 3             # Minimum restart count threshold
   watchNamespace: ""             # Watch specific namespace (empty = all)
   healthPort: 8081              # Health check port
+  progressDeadlineSeconds: 600  # Progress deadline seconds
 
 resources:
   limits:
