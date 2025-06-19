@@ -81,6 +81,8 @@ spec:
           value: {{ .Values.operator.recheckInterval | quote }}
         - name: MIN_RESTART_COUNT
           value: {{ .Values.operator.minRestartCount | quote }}
+        - name: PROGRESS_DEADLINE_SECONDS
+          value: {{ .Values.operator.progressDeadlineSeconds | quote }}
         {{- if .Values.operator.watchNamespace }}
         - name: WATCH_NAMESPACE
           value: {{ .Values.operator.watchNamespace | quote }}
