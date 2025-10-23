@@ -161,27 +161,48 @@ func (r *ReplicaSetController) shouldDeleteDueToProgressDeadline(rs *appsv1.Repl
 
 		for _, pod := range pods {
 			containerFound := false
-			containerReady := false
+			containerInBadState := false
 
 			for _, containerStatus := range pod.Status.ContainerStatuses {
 				if containerStatus.Name == containerName {
 					containerFound = true
-					if containerStatus.Ready {
-						containerReady = true
+					// Check if container is in a bad state (not running or in waiting/terminated with error)
+					if containerStatus.State.Running == nil {
+						// Container is not running, check if it's in a problematic state
+						if containerStatus.State.Waiting != nil {
+							// Container is waiting - this could be normal (e.g., pulling image) or problematic
+							// Only consider it problematic if it's been waiting for a long time
+							// or if it's in a known error state
+							if containerStatus.State.Waiting.Reason == "ImagePullBackOff" ||
+								containerStatus.State.Waiting.Reason == "ErrImagePull" ||
+								containerStatus.State.Waiting.Reason == "InvalidImageName" ||
+								containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
+								containerInBadState = true
+							}
+						} else if containerStatus.State.Terminated != nil {
+							// Container terminated - check if it's an error
+							if containerStatus.State.Terminated.ExitCode != 0 {
+								containerInBadState = true
+							}
+						} else {
+							// Container state is unknown or nil - consider it problematic
+							containerInBadState = true
+						}
 					}
+					// If container is running, it's in a good state regardless of Ready status
 					break
 				}
 			}
 
-			// If container not found in this pod or if it's ready,
-			// then not all pods have this container unready
-			if !containerFound || containerReady {
+			// If container not found in this pod or if it's in a good state,
+			// then not all pods have this container in a bad state
+			if !containerFound || !containerInBadState {
 				allPodsHaveUnreadyContainer = false
 				break
 			}
 		}
 
-		// If we found at least one container that is unready across all pods
+		// If we found at least one container that is in a bad state across all pods
 		if allPodsHaveUnreadyContainer {
 			return true
 		}
