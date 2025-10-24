@@ -1,6 +1,5 @@
 // Package main implements a Kubernetes operator that monitors ReplicaSets
 // and automatically deletes those in CrashLoopBackOff state or those that exceed
-// progressDeadlineSeconds with all pods having unready containers.
 package main
 
 import (
