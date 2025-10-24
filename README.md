@@ -6,44 +6,23 @@
 [![License](https://img.shields.io/github/license/yeonghoo2/crashloop-operator)](LICENSE)
 [![Helm Chart](https://img.shields.io/badge/helm-chart-blue)](https://yeonghoo2.github.io/crashloop-operator)
 
-> A Kubernetes operator that automatically detects and removes ReplicaSets where ALL pods are in CrashLoopBackOff state.
+> A Kubernetes operator that automatically removes ReplicaSets where ALL pods are in CrashLoopBackOff state.
 
-## 🎯 Overview
+## Overview
 
-The CrashLoop Operator is a Kubernetes operator that automatically detects and removes ReplicaSets where all pods are stuck in CrashLoopBackOff state. It helps maintain cluster health and resource efficiency by cleaning up problematic ReplicaSets.
-
-### What it does
-- **Monitors** ReplicaSets across your Kubernetes cluster
-- **Detects** ReplicaSets where ALL pods are in CrashLoopBackOff state
-- **Removes** qualifying ReplicaSets automatically to free up cluster resources
-
-### Why it's useful
-The operator is particularly valuable in deployment environments like Argo Rollouts where failed deployments can leave ReplicaSets running indefinitely. This commonly occurs when:
-- All pods enter CrashLoopBackOff state and keep restarting
-- Deployment processes fail to properly clean up failed ReplicaSets
-- Integration with service meshes (like Istio) prevents proper cleanup of stuck deployments
-
-By automatically removing these problematic ReplicaSets, the operator helps maintain cluster stability and prevents resource waste.
+The CrashLoop Operator automatically detects and removes ReplicaSets where all pods are stuck in CrashLoopBackOff state. It's particularly useful for Argo Rollouts environments where failed deployments can leave ReplicaSets running indefinitely.
 
 ### Key Features
 
-- **🔍 Precise Detection**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff state
+- **🎯 Precise Targeting**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff
+- **🚀 Argo Rollouts Ready**: Default configuration targets Argo Rollouts ReplicaSets
 - **⚡ Automatic Cleanup**: Removes problematic ReplicaSets automatically
-- **🛡️ Safety First**: Conservative approach - only deletes when all pods are clearly failing
+- **🛡️ Safe**: Conservative approach - only deletes when all pods are clearly failing
 - **📊 Configurable**: Customizable restart count and check intervals
-- **🚀 Easy Deployment**: Simple Helm chart installation
-- **🔒 Secure**: Minimal RBAC permissions and non-root container execution
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Kubernetes 1.31+
-- Helm 3.8+
+## Quick Start
 
 ### Installation
-
-Add the Helm repository and install the operator:
 
 ```bash
 helm repo add crashloop-operator https://yeonghoo2.github.io/crashloop-operator
@@ -51,101 +30,64 @@ helm repo update
 helm install crashloop-operator crashloop-operator/crashloop-operator
 ```
 
-That's it! The operator will start monitoring your cluster immediately.
-
 ### Verification
-
-Check if the operator is running:
 
 ```bash
 kubectl get pods -l app.kubernetes.io/name=crashloop-operator
-```
-
-View operator logs:
-
-```bash
 kubectl logs -l app.kubernetes.io/name=crashloop-operator -f
 ```
 
-## 📖 How It Works
+## How It Works
 
-The CrashLoop Operator follows a simple but effective logic:
-
-1. **Monitor**: Continuously watches ReplicaSet resources across the cluster
-2. **Analyze**: Identifies ReplicaSets that match deletion criteria:
-   - Matches configured target labels (if specified)
-   - Contains pods where ALL pods are in CrashLoopBackOff state
-3. **Act**: Safely removes qualifying ReplicaSets to free up cluster resources
-4. **Repeat**: Rechecks every 30 seconds (configurable via `RECHECK_INTERVAL`)
+1. **Monitor**: Watches ReplicaSets across the cluster
+2. **Analyze**: Identifies ReplicaSets where ALL pods are in CrashLoopBackOff
+3. **Act**: Safely removes qualifying ReplicaSets
+4. **Repeat**: Rechecks every 30 seconds
 
 ### Deletion Criteria
 
-A ReplicaSet will be deleted if **ALL** of the following conditions are met:
-
-- ReplicaSet matches the configured target labels (if `TARGET_LABELS` is set)
-- At least one pod exists for the ReplicaSet
-- **ALL pods** in the ReplicaSet are in CrashLoopBackOff state
+A ReplicaSet is deleted when:
+- Matches target labels (default: Argo Rollouts ReplicaSets)
+- Has at least one pod
+- **ALL pods** are in CrashLoopBackOff state
 
 #### CrashLoopBackOff Detection
 
-A pod is considered in CrashLoopBackOff state if:
+A pod is in CrashLoopBackOff if:
 - Container has `state.waiting.reason == "CrashLoopBackOff"` OR
 - Container has `restartCount > minRestartCount` (default: 3) AND `ready == false`
 
-### Configuration Options
+## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `TARGET_LABELS` | `{}` | JSON map of labels to target specific ReplicaSets |
-| `MIN_RESTART_COUNT` | `3` | Minimum restart count to consider for deletion |
-| `RECHECK_INTERVAL` | `30` | Seconds between reconciliation cycles |
-| `WATCH_NAMESPACE` | `""` | Specific namespace to watch (empty = all namespaces) |
+### Default Behavior
 
-## ⚙️ Configuration
+By default, the operator targets ReplicaSets with the `rollouts-pod-template-hash` label (Argo Rollouts ReplicaSets). To target all ReplicaSets, set `targetLabels: {}`.
 
 ### Helm Values
 
-Customize the operator behavior using Helm values:
-
 ```yaml
 operator:
-  targetLabels: {}               # Target specific ReplicaSets (empty = all)
+  targetLabels:                  # Target specific ReplicaSets
+    rollouts-pod-template-hash: ""  # Default: Argo Rollouts
   logLevel: 2                    # Log verbosity (0-4)
   recheckInterval: 30            # Check interval in seconds
   minRestartCount: 3             # Minimum restart count threshold
   watchNamespace: ""             # Watch specific namespace (empty = all)
   healthPort: 8081              # Health check port
-
-resources:
-  limits:
-    cpu: 500m
-    memory: 128Mi
-  requests:
-    cpu: 10m
-    memory: 64Mi
-
-# Security settings
-securityContext:
-  runAsNonRoot: true
-  runAsUser: 65532
-  readOnlyRootFilesystem: true
 ```
 
-### Example Installation with Custom Values
+### Environment Variables
 
-```bash
-helm install crashloop-operator crashloop-operator/crashloop-operator \
-  --set operator.logLevel=3 \
-  --set operator.recheckInterval=60 \
-  --set operator.minRestartCount=5 \
-  --set resources.requests.cpu=20m
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TARGET_LABELS` | `{"rollouts-pod-template-hash": ""}` | JSON map of labels to target |
+| `MIN_RESTART_COUNT` | `3` | Minimum restart count threshold |
+| `RECHECK_INTERVAL` | `30` | Check interval in seconds |
+| `WATCH_NAMESPACE` | `""` | Specific namespace to watch |
 
-## 🧪 Testing
+## Testing
 
-### Create a Test CrashLoop Scenario
-
-To verify the operator works correctly, create a ReplicaSet that will crash:
+Create a test ReplicaSet that will crash:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -155,6 +97,7 @@ metadata:
   name: test-crashloop-rs
   labels:
     app: test-crashloop
+    rollouts-pod-template-hash: "test123"  # Argo Rollouts label
 spec:
   replicas: 2
   selector:
@@ -177,82 +120,54 @@ spec:
 EOF
 ```
 
-Monitor the ReplicaSet and pods:
+Monitor the deletion:
 
 ```bash
-# Watch for the automatic deletion
 watch kubectl get rs,pods -l app=test-crashloop
 ```
 
-The operator should detect and remove the ReplicaSet within 30 seconds after ALL pods enter CrashLoopBackOff state.
+The operator should delete the ReplicaSet within 30 seconds after ALL pods enter CrashLoopBackOff state.
 
-## 🛠️ Development
-
-### Building from Source
+## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/yeonghoo2/crashloop-operator.git
 cd crashloop-operator
 
-# Build binary
+# Build and run
 make build
-
-# Run locally (requires kubeconfig)
 make run
 
 # Build Docker image
 make docker-build
-
-# Run tests
-make test
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-### Common Issues
-
-**Operator not starting:**
+**Check operator status:**
 ```bash
-# Check pod status
 kubectl get pods -l app.kubernetes.io/name=crashloop-operator
-
-# Check logs for errors
 kubectl logs -l app.kubernetes.io/name=crashloop-operator
 ```
 
-**RBAC permission issues:**
+**Enable debug logging:**
 ```bash
-# Verify ClusterRole and ClusterRoleBinding
+helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
+  --set operator.logLevel=4
+```
+
+**Verify RBAC:**
+```bash
 kubectl get clusterrole,clusterrolebinding | grep crashloop-operator
 ```
 
-**ReplicaSets not being deleted:**
-```bash
-# Check if ReplicaSets match deletion criteria
-kubectl get rs -o wide
+## Important Notes
 
-# Increase log level for more details
-helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
-  --set operator.logLevel=4
-```
+- **Argo Rollouts**: Default configuration targets Argo Rollouts ReplicaSets
+- **Safety**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff
+- **Production**: Test thoroughly before deploying to production
+- **Permissions**: Requires cluster-wide permissions to view and delete ReplicaSets
 
-### Debug Mode
+## License
 
-Enable verbose logging for troubleshooting:
-
-```bash
-helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
-  --set operator.logLevel=4
-```
-
-## 🚨 Important Notes
-
-- **Production Usage**: Thoroughly test in non-production environments before deploying to production clusters
-- **Permissions**: The operator requires cluster-wide permissions to view and delete ReplicaSets
-- **Safety**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff state - very conservative approach
-- **Target Labels**: Use `TARGET_LABELS` to limit the operator's scope to specific ReplicaSets
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.

@@ -65,7 +65,9 @@ replicaCount: 1
 # Operator settings
 operator:
   # Target labels to filter ReplicaSets (empty means all ReplicaSets)
-  targetLabels: {}
+  # Default targets Argo Rollouts ReplicaSets
+  targetLabels:
+    rollouts-pod-template-hash: ""
   # Log level (0-4, higher is more verbose)
   logLevel: 2
   # Check interval for replicasets (in seconds)
