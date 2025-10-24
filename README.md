@@ -6,32 +6,31 @@
 [![License](https://img.shields.io/github/license/yeonghoo2/crashloop-operator)](LICENSE)
 [![Helm Chart](https://img.shields.io/badge/helm-chart-blue)](https://yeonghoo2.github.io/crashloop-operator)
 
-> A Kubernetes operator that automatically detects and removes ReplicaSets with pods stuck in CrashLoopBackOff state, helping maintain cluster health and resource efficiency.
+> A Kubernetes operator that automatically detects and removes ReplicaSets where ALL pods are in CrashLoopBackOff state.
 
 ## 🎯 Overview
 
-The CrashLoop Operator is a Kubernetes operator that automatically detects and removes ReplicaSets with pods stuck in failure states. It helps maintain cluster health and resource efficiency by cleaning up problematic ReplicaSets that consume resources without providing value.
+The CrashLoop Operator is a Kubernetes operator that automatically detects and removes ReplicaSets where all pods are stuck in CrashLoopBackOff state. It helps maintain cluster health and resource efficiency by cleaning up problematic ReplicaSets.
 
 ### What it does
 - **Monitors** ReplicaSets across your Kubernetes cluster
-- **Detects** ReplicaSets with pods in CrashLoopBackOff state or exceeding progress deadlines
+- **Detects** ReplicaSets where ALL pods are in CrashLoopBackOff state
 - **Removes** qualifying ReplicaSets automatically to free up cluster resources
 
 ### Why it's useful
 The operator is particularly valuable in deployment environments like Argo Rollouts where failed deployments can leave ReplicaSets running indefinitely. This commonly occurs when:
-- Pods enter CrashLoopBackOff state and keep restarting
+- All pods enter CrashLoopBackOff state and keep restarting
 - Deployment processes fail to properly clean up failed ReplicaSets
 - Integration with service meshes (like Istio) prevents proper cleanup of stuck deployments
 
 By automatically removing these problematic ReplicaSets, the operator helps maintain cluster stability and prevents resource waste.
 
-
 ### Key Features
 
-- **🔍 Intelligent Detection**: Monitors ReplicaSets with exactly 1 replica and 0 ready replicas
-- **⚡ Automatic Cleanup**: Removes ReplicaSets when pods are in CrashLoopBackOff state
-- **🛡️ Safety First**: Only targets specific failure patterns to avoid accidental deletions
-- **📊 Configurable Thresholds**: Customizable restart count and check intervals
+- **🔍 Precise Detection**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff state
+- **⚡ Automatic Cleanup**: Removes problematic ReplicaSets automatically
+- **🛡️ Safety First**: Conservative approach - only deletes when all pods are clearly failing
+- **📊 Configurable**: Customizable restart count and check intervals
 - **🚀 Easy Deployment**: Simple Helm chart installation
 - **🔒 Secure**: Minimal RBAC permissions and non-root container execution
 
@@ -69,42 +68,38 @@ kubectl logs -l app.kubernetes.io/name=crashloop-operator -f
 ```
 
 ## 📖 How It Works
+
 The CrashLoop Operator follows a simple but effective logic:
 
 1. **Monitor**: Continuously watches ReplicaSet resources across the cluster
 2. **Analyze**: Identifies ReplicaSets that match deletion criteria:
-  - Has 0 ready replicas
-  - Matches configured target labels (if specified)
-  - Contains pods in CrashLoopBackOff state OR with high restart counts OR exceeds progress deadline
+   - Matches configured target labels (if specified)
+   - Contains pods where ALL pods are in CrashLoopBackOff state
 3. **Act**: Safely removes qualifying ReplicaSets to free up cluster resources
 4. **Repeat**: Rechecks every 30 seconds (configurable via `RECHECK_INTERVAL`)
 
 ### Deletion Criteria
+
 A ReplicaSet will be deleted if **ALL** of the following conditions are met:
-- `status.readyReplicas == 0`
+
 - ReplicaSet matches the configured target labels (if `TARGET_LABELS` is set)
 - At least one pod exists for the ReplicaSet
+- **ALL pods** in the ReplicaSet are in CrashLoopBackOff state
 
-**AND** at least one of the following conditions:
+#### CrashLoopBackOff Detection
 
-#### Condition 1: CrashLoopBackOff or High Restart Count
-At least one pod has:
-- `state.waiting.reason == "CrashLoopBackOff"` OR
-- `restartCount > minRestartCount` (default: 3) AND `ready == false`
-
-#### Condition 2: Progress Deadline Exceeded
-- ReplicaSet age exceeds `progressDeadlineSeconds` (default: 600 seconds / 10 minutes)
-- **AND** all pods have at least one identical container that is not ready across all pods
+A pod is considered in CrashLoopBackOff state if:
+- Container has `state.waiting.reason == "CrashLoopBackOff"` OR
+- Container has `restartCount > minRestartCount` (default: 3) AND `ready == false`
 
 ### Configuration Options
+
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `TARGET_LABELS` | `{rollouts-pod-template-hash: ""}` | JSON map of labels to target specific ReplicaSets |
+| `TARGET_LABELS` | `{}` | JSON map of labels to target specific ReplicaSets |
 | `MIN_RESTART_COUNT` | `3` | Minimum restart count to consider for deletion |
-| `RECHECK_INTERVAL` | `120` | Seconds between reconciliation cycles |
-| `PROGRESS_DEADLINE_SECONDS` | `600` | Maximum time (seconds) before considering ReplicaSet stale |
+| `RECHECK_INTERVAL` | `30` | Seconds between reconciliation cycles |
 | `WATCH_NAMESPACE` | `""` | Specific namespace to watch (empty = all namespaces) |
-
 
 ## ⚙️ Configuration
 
@@ -116,10 +111,8 @@ Customize the operator behavior using Helm values:
 operator:
   logLevel: 2                    # Log verbosity (0-4)
   recheckInterval: 30            # Check interval in seconds
-  minRestartCount: 2             # Minimum restart count threshold
+  minRestartCount: 3             # Minimum restart count threshold
   watchNamespace: ""             # Watch specific namespace (empty = all)
-  healthPort: 8081              # Health check port
-  progressDeadlineSeconds: 600  # Progress deadline seconds
 
 resources:
   limits:
@@ -160,9 +153,8 @@ metadata:
   name: test-crashloop-rs
   labels:
     app: test-crashloop
-    rollouts-pod-template-hash: abcdefghi
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: test-crashloop
@@ -190,7 +182,7 @@ Monitor the ReplicaSet and pods:
 watch kubectl get rs,pods -l app=test-crashloop
 ```
 
-The operator should detect and remove the ReplicaSet within 2-3 minutes after the pod enters CrashLoopBackOff state.
+The operator should detect and remove the ReplicaSet within 30 seconds after ALL pods enter CrashLoopBackOff state.
 
 ## 🛠️ Development
 
@@ -256,7 +248,8 @@ helm upgrade crashloop-operator crashloop-operator/crashloop-operator \
 
 - **Production Usage**: Thoroughly test in non-production environments before deploying to production clusters
 - **Permissions**: The operator requires cluster-wide permissions to view and delete ReplicaSets
-- **Safety**: Always verify deletion criteria match your requirements
+- **Safety**: Only deletes ReplicaSets where ALL pods are in CrashLoopBackOff state - very conservative approach
+- **Target Labels**: Use `TARGET_LABELS` to limit the operator's scope to specific ReplicaSets
 
 ## 📄 License
 
