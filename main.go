@@ -24,11 +24,10 @@ import (
 
 // OperatorConfig holds the configuration for the operator
 type OperatorConfig struct {
-	TargetLabels            map[string]string
-	MinRestartCount         int32
-	RecheckInterval         time.Duration
-	WatchNamespace          string
-	ProgressDeadlineSeconds int32
+	TargetLabels    map[string]string
+	MinRestartCount int32
+	RecheckInterval time.Duration
+	WatchNamespace  string
 }
 
 // ReplicaSetController reconciles ReplicaSet objects
@@ -40,8 +39,7 @@ type ReplicaSetController struct {
 }
 
 // Reconcile handles the reconciliation logic for ReplicaSets.
-// It monitors ReplicaSets and deletes those that are in CrashLoopBackOff state
-// or those that exceed progressDeadlineSeconds with all pods having unready containers.
+// It monitors ReplicaSets and deletes those where ALL pods are in CrashLoopBackOff state.
 func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -64,68 +62,39 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
 	}
 
-	// Check condition: 0 ready replicas (regardless of total replica count)
-	if rs.Status.ReadyReplicas == 0 {
-		// List pods for this ReplicaSet
-		podList := &corev1.PodList{}
-		listOpts := []client.ListOption{
-			client.InNamespace(rs.Namespace),
-			client.MatchingLabels(rs.Spec.Selector.MatchLabels),
-		}
+	// List pods for this ReplicaSet
+	podList := &corev1.PodList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(rs.Namespace),
+		client.MatchingLabels(rs.Spec.Selector.MatchLabels),
+	}
 
-		if err := r.List(ctx, podList, listOpts...); err != nil {
-			log.Error(err, "Failed to list pods")
-			return reconcile.Result{}, err
-		}
+	if err := r.List(ctx, podList, listOpts...); err != nil {
+		log.Error(err, "Failed to list pods")
+		return reconcile.Result{}, err
+	}
 
-		// Check if there are any pods
-		if len(podList.Items) > 0 {
-			// Check for CrashLoopBackOff condition
-			for _, pod := range podList.Items {
-				if r.isPodInCrashLoopBackOff(&pod) {
-					log.Info("Deleting ReplicaSet with CrashLoopBackOff pods",
-						"replicaset", rs.Name,
-						"namespace", rs.Namespace,
-						"pod", pod.Name,
-						"totalPods", len(podList.Items),
-						"readyReplicas", rs.Status.ReadyReplicas,
-						"matchedLabels", r.getMatchedLabels(&rs))
+	// Check if there are any pods
+	if len(podList.Items) > 0 {
+		// Check if ALL pods are in CrashLoopBackOff state
+		if r.areAllPodsInCrashLoopBackOff(podList.Items) {
+			log.Info("Deleting ReplicaSet with all pods in CrashLoopBackOff",
+				"replicaset", rs.Name,
+				"namespace", rs.Namespace,
+				"totalPods", len(podList.Items),
+				"readyReplicas", rs.Status.ReadyReplicas,
+				"matchedLabels", r.getMatchedLabels(&rs))
 
-					// Delete the ReplicaSet
-					if err := r.Delete(ctx, &rs); err != nil {
-						log.Error(err, "Failed to delete ReplicaSet")
-						return reconcile.Result{}, err
-					}
-
-					log.Info("ReplicaSet successfully deleted due to CrashLoopBackOff",
-						"replicaset", rs.Name,
-						"totalPodsDeleted", len(podList.Items))
-					return reconcile.Result{}, nil
-				}
+			// Delete the ReplicaSet
+			if err := r.Delete(ctx, &rs); err != nil {
+				log.Error(err, "Failed to delete ReplicaSet")
+				return reconcile.Result{}, err
 			}
 
-			// Check for progressDeadlineSeconds condition
-			if r.shouldDeleteDueToProgressDeadline(&rs, podList.Items) {
-				log.Info("Deleting ReplicaSet due to progress deadline exceeded",
-					"replicaset", rs.Name,
-					"namespace", rs.Namespace,
-					"totalPods", len(podList.Items),
-					"readyReplicas", rs.Status.ReadyReplicas,
-					"progressDeadlineSeconds", r.Config.ProgressDeadlineSeconds,
-					"replicaSetAge", time.Since(rs.CreationTimestamp.Time),
-					"matchedLabels", r.getMatchedLabels(&rs))
-
-				// Delete the ReplicaSet
-				if err := r.Delete(ctx, &rs); err != nil {
-					log.Error(err, "Failed to delete ReplicaSet")
-					return reconcile.Result{}, err
-				}
-
-				log.Info("ReplicaSet successfully deleted due to progress deadline",
-					"replicaset", rs.Name,
-					"totalPodsDeleted", len(podList.Items))
-				return reconcile.Result{}, nil
-			}
+			log.Info("ReplicaSet successfully deleted due to all pods in CrashLoopBackOff",
+				"replicaset", rs.Name,
+				"totalPodsDeleted", len(podList.Items))
+			return reconcile.Result{}, nil
 		}
 	}
 
@@ -133,83 +102,6 @@ func (r *ReplicaSetController) Reconcile(ctx context.Context, req reconcile.Requ
 	return reconcile.Result{RequeueAfter: r.Config.RecheckInterval}, nil
 }
 
-// shouldDeleteDueToProgressDeadline checks if ReplicaSet should be deleted
-// based on progressDeadlineSeconds and container readiness
-func (r *ReplicaSetController) shouldDeleteDueToProgressDeadline(rs *appsv1.ReplicaSet, pods []corev1.Pod) bool {
-	// Check if ReplicaSet is older than progressDeadlineSeconds
-	deadline := time.Duration(r.Config.ProgressDeadlineSeconds) * time.Second
-	if time.Since(rs.CreationTimestamp.Time) < deadline {
-		return false
-	}
-
-	// Check if all pods have the same container that is unready
-	if len(pods) == 0 {
-		return false
-	}
-
-	// Collect all container names from the first pod to use as reference
-	var referenceContainerNames []string
-	if len(pods[0].Status.ContainerStatuses) > 0 {
-		for _, containerStatus := range pods[0].Status.ContainerStatuses {
-			referenceContainerNames = append(referenceContainerNames, containerStatus.Name)
-		}
-	}
-
-	// For each container, check if it's unready across all pods
-	for _, containerName := range referenceContainerNames {
-		allPodsHaveUnreadyContainer := true
-
-		for _, pod := range pods {
-			containerFound := false
-			containerInBadState := false
-
-			for _, containerStatus := range pod.Status.ContainerStatuses {
-				if containerStatus.Name == containerName {
-					containerFound = true
-					// Check if container is in a bad state (not running or in waiting/terminated with error)
-					if containerStatus.State.Running == nil {
-						// Container is not running, check if it's in a problematic state
-						if containerStatus.State.Waiting != nil {
-							// Container is waiting - this could be normal (e.g., pulling image) or problematic
-							// Only consider it problematic if it's been waiting for a long time
-							// or if it's in a known error state
-							if containerStatus.State.Waiting.Reason == "ImagePullBackOff" ||
-								containerStatus.State.Waiting.Reason == "ErrImagePull" ||
-								containerStatus.State.Waiting.Reason == "InvalidImageName" ||
-								containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
-								containerInBadState = true
-							}
-						} else if containerStatus.State.Terminated != nil {
-							// Container terminated - check if it's an error
-							if containerStatus.State.Terminated.ExitCode != 0 {
-								containerInBadState = true
-							}
-						} else {
-							// Container state is unknown or nil - consider it problematic
-							containerInBadState = true
-						}
-					}
-					// If container is running, it's in a good state regardless of Ready status
-					break
-				}
-			}
-
-			// If container not found in this pod or if it's in a good state,
-			// then not all pods have this container in a bad state
-			if !containerFound || !containerInBadState {
-				allPodsHaveUnreadyContainer = false
-				break
-			}
-		}
-
-		// If we found at least one container that is in a bad state across all pods
-		if allPodsHaveUnreadyContainer {
-			return true
-		}
-	}
-
-	return false
-}
 
 // matchesTargetLabels checks if the ReplicaSet has the required target labels
 func (r *ReplicaSetController) matchesTargetLabels(rs *appsv1.ReplicaSet) bool {
@@ -242,6 +134,21 @@ func (r *ReplicaSetController) getMatchedLabels(rs *appsv1.ReplicaSet) map[strin
 		}
 	}
 	return matched
+}
+
+// areAllPodsInCrashLoopBackOff checks if ALL pods in the list are in CrashLoopBackOff state
+func (r *ReplicaSetController) areAllPodsInCrashLoopBackOff(pods []corev1.Pod) bool {
+	if len(pods) == 0 {
+		return false
+	}
+
+	// Check if every pod is in CrashLoopBackOff state
+	for _, pod := range pods {
+		if !r.isPodInCrashLoopBackOff(&pod) {
+			return false
+		}
+	}
+	return true
 }
 
 // isPodInCrashLoopBackOff checks if a pod is in CrashLoopBackOff state
@@ -328,7 +235,6 @@ func main() {
 		"minRestartCount", config.MinRestartCount,
 		"recheckInterval", config.RecheckInterval,
 		"watchNamespace", config.WatchNamespace,
-		"progressDeadlineSeconds", config.ProgressDeadlineSeconds,
 		"healthPort", "8081")
 
 	// Start the manager
@@ -340,10 +246,9 @@ func main() {
 // loadConfig loads configuration from environment variables
 func loadConfig() *OperatorConfig {
 	config := &OperatorConfig{
-		TargetLabels:            make(map[string]string),
-		MinRestartCount:         3,
-		RecheckInterval:         30 * time.Second,
-		ProgressDeadlineSeconds: 600, // Default 10 minutes
+		TargetLabels:    make(map[string]string),
+		MinRestartCount: 3,
+		RecheckInterval: 30 * time.Second,
 	}
 
 	// Load target labels from environment variable
@@ -368,13 +273,6 @@ func loadConfig() *OperatorConfig {
 
 	if watchNamespaceEnv := os.Getenv("WATCH_NAMESPACE"); watchNamespaceEnv != "" {
 		config.WatchNamespace = watchNamespaceEnv
-	}
-
-	// Load progressDeadlineSeconds from environment variable
-	if progressDeadlineEnv := os.Getenv("PROGRESS_DEADLINE_SECONDS"); progressDeadlineEnv != "" {
-		if deadline, err := strconv.ParseInt(progressDeadlineEnv, 10, 32); err == nil {
-			config.ProgressDeadlineSeconds = int32(deadline)
-		}
 	}
 
 	return config
