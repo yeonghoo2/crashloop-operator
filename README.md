@@ -109,10 +109,12 @@ Customize the operator behavior using Helm values:
 
 ```yaml
 operator:
+  targetLabels: {}               # Target specific ReplicaSets (empty = all)
   logLevel: 2                    # Log verbosity (0-4)
   recheckInterval: 30            # Check interval in seconds
   minRestartCount: 3             # Minimum restart count threshold
   watchNamespace: ""             # Watch specific namespace (empty = all)
+  healthPort: 8081              # Health check port
 
 resources:
   limits:

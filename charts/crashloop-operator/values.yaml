@@ -64,20 +64,18 @@ replicaCount: 1
 
 # Operator settings
 operator:
-  targetLabels:
-    rollouts-pod-template-hash: ""
+  # Target labels to filter ReplicaSets (empty means all ReplicaSets)
+  targetLabels: {}
   # Log level (0-4, higher is more verbose)
   logLevel: 2
   # Check interval for replicasets (in seconds)
-  recheckInterval: 120
+  recheckInterval: 30
   # Minimum restart count to consider a pod as crashing
   minRestartCount: 3
   # Namespace to watch (empty means all namespaces)
   watchNamespace: ""
   # Health probe port
   healthPort: 8081
-  # Progress deadline seconds
-  progressDeadlineSeconds: 600
 
 
 # RBAC settings
